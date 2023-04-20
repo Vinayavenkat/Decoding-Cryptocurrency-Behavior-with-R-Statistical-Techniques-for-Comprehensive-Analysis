@@ -1,0 +1,355 @@
+---
+title: 'Decoding Cryptocurrency Behavior with R: Statistical Techniques for Comprehensive
+  Analysis'
+author: "Vinaya Ramamorthy Venkatasubramanian, Shravan Gopalakrishnan, Krishnan Narayanan"
+date: "2023-04-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+data <- read.csv("consolidated_coin_data.csv")
+```
+
+```{r}
+head(data)
+```
+
+## close price data
+
+```{r message=FALSE, warning=FALSE}
+library(reshape2)
+prices_raw <- reshape(data[c(1, 2, 6)], timevar = "Currency", idvar = "Date", direction = "wide")
+prices_raw[,"Close.Currency"] <- NULL
+
+prices <- data.frame(sapply(prices_raw, function(z) {as.numeric(as.character(z))}))
+
+colnames(prices) <- sub("Close.", "", colnames(prices))
+
+library(lubridate)
+dates <- parse_date_time(x = as.character(prices_raw$Date), orders = "b/d/Y", locale = "eng")
+prices$Date <- dates
+
+prices <- prices[-nrow(prices),]
+
+```
+
+This code is preparing the historical cryptocurrency prices data for analysis. Specifically, it does the following:
+
+Subset the original data frame to include only columns with date, currency, and close_price data.
+Reshape the data frame so that the row index is the date and the columns are the currencies, with close_price values in the cells.
+Convert the close_price values to numeric format and create a new data frame with the converted values.
+Rename the columns to remove the "Close." prefix.
+Convert the date column from character format to POSIXct format using the lubridate package.
+Remove the last row, which has no information.
+
+```{r }
+dim(prices)
+```
+
+```{r }
+sum(is.na(prices))
+```
+
+```{r }
+length.col <- colSums(!is.na(prices[,-1]))
+
+sort(length.col)[1]
+```
+
+```{r}
+length.col <- colSums(!is.na(prices[, -1]))
+
+time_intervals <- cut(length.col, c(0, 180, 365, 2*365, 3*365, 4*365, Inf), right = TRUE)
+table_intervals <- table(time_intervals)
+
+cat("Summary table of cryptocurrency data availability:\n")
+cat(sprintf("    %12s   %12s\n", "Time Interval", "Number of Cryptocurrencies"))
+cat(sprintf("    %12s   %12s\n", "-------------", "------------------------"))
+for(i in 1:length(table_intervals)){
+  cat(sprintf("    %12s   %12s\n", levels(time_intervals)[i], table_intervals[i]))
+}
+
+cat("\nSummary table of cryptocurrency data availability (percentage):\n")
+cat(sprintf("    %12s   %12s\n", "Time Interval", "Percentage of Cryptocurrencies"))
+cat(sprintf("    %12s   %12s\n", "-------------", "-----------------------------"))
+for(i in 1:length(table_intervals)){
+  cat(sprintf("    %12s   %12.2f%%\n", levels(time_intervals)[i], table_intervals[i]/sum(table_intervals)*100))
+}
+
+
+```
+The first summary table shows the number of cryptocurrencies available in different time intervals. It indicates that there are no cryptocurrencies available in the first four time intervals. Only one cryptocurrency is available in the time interval between 1,100 and 1,460 days, and 11 cryptocurrencies are available for the time interval greater than 1,460 days.
+
+The second summary table shows the percentage of cryptocurrencies available in each time interval. It indicates that there are no cryptocurrencies available in the first four time intervals, and only one cryptocurrency is available in the time interval between 1,100 and 1,460 days, which represents 8.33% of the total number of cryptocurrencies. The majority of cryptocurrencies (91.67%) are available for the time interval greater than 1,460 days.
+
+
+
+## Correlation matrix
+```{r message=F}
+prices_min_180 <- prices[, colSums(!is.na(prices)) >= 180]
+
+corr_mat <- cor(prices_min_180[,-1], use = "pairwise.complete")
+
+library(ggplot2)
+library(reshape2)
+
+corr_long <- melt(corr_mat)
+
+corr_long
+
+ggplot(data = corr_long, aes(Var1, Var2, fill = value)) + 
+  geom_tile() + 
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+                       midpoint = 0, limit = c(-1,1), name = "Correlation") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + 
+  labs(x = "Cryptocurrencies", y = "Cryptocurrencies",
+       title = "Correlation matrix (ordered by hierarchical clustering)")
+
+```
+The code above extracts columns from the close data frame that have at least 180 non-missing values, computes the correlation matrix between these columns, and visualizes the matrix using a heatmap. The heatmap shows pairwise correlations between cryptocurrencies. The color scale ranges from blue (negative correlation) to white (no correlation) to red (positive correlation), with the midpoint at 0. The x and y axes show the cryptocurrencies being compared, and the plot is titled "Correlation matrix (ordered by hierarchical clustering)."
+
+The heatmap is a useful tool for identifying patterns of correlation among the cryptocurrencies. For example, it can reveal which cryptocurrencies tend to move together (either positively or negatively) and which ones are relatively independent. By ordering the cryptocurrencies according to hierarchical clustering, the plot also highlights groups of cryptocurrencies that are more closely related to each other. Overall, the heatmap provides a useful summary of the correlation structure in the data.
+
+Cryptocurrencies that have positive correlation coefficients (close to 1) move together positively. From the heatmap, we can see that there are many cryptocurrencies that move together positively, indicated by the light red and white tiles. 
+
+
+##Relation between bitcoin and alt coin prices
+```{r warning=TRUE, collapse=TRUE}
+corr_bitcoin_altcoins <- corr_mat[1, 2:ncol(corr_mat)]
+
+print(corr_bitcoin_altcoins)
+
+```
+```{r warning=TRUE, collapse=TRUE}
+
+library(ggplot2)
+
+df <- data.frame(correlation = corr_bitcoin_altcoins, 
+                 altcoin = names(corr_bitcoin_altcoins))
+
+ggplot(df, aes(x = altcoin, y = correlation)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Altcoin", y = "Correlation with Bitcoin", 
+       title = "Correlation between Bitcoin and altcoins")
+
+```
+The plot helps to identify which altcoins have a higher or lower correlation with Bitcoin.
+A higher correlation between Bitcoin and an altcoin indicates that the price movements of the two cryptocurrencies tend to be more similar, while a lower correlation indicates that the price movements tend to be less related.
+
+
+###Top 5 positively correlated with bitcoin
+```{r collapse=TRUE}
+corr_bitcoin_altcoins <- corr_mat[1, 2:ncol(corr_mat)]
+
+sorted_corr <- sort(corr_bitcoin_altcoins, decreasing = TRUE)
+
+top_5_altcoins <- names(sorted_corr[sorted_corr > 0])[1:5]
+
+df <- data.frame(correlation = sorted_corr[1:5], 
+                 altcoin = top_5_altcoins)
+
+ggplot(df, aes(x = altcoin, y = correlation)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Altcoin", y = "Correlation with Bitcoin", 
+       title = "Top 5 Altcoins Positively Correlated with Bitcoin")
+
+```
+Note that the code selects the top 5 altcoins that are positively correlated with Bitcoin based on the correlation values sorted in decreasing order. The resulting plot shows the altcoin names and their respective correlation values with Bitcoin.
+
+###Top 5 negatively correlated with bitcoin
+```{r collapse=TRUE, message=F, warning=F}
+corr_bitcoin_altcoins <- corr_mat[1, 2:ncol(corr_mat)]
+
+top_5_neg_corr_indices <- order(corr_bitcoin_altcoins)[1:5]
+
+df <- data.frame(correlation = corr_bitcoin_altcoins[top_5_neg_corr_indices], 
+                 altcoin = names(corr_bitcoin_altcoins[top_5_neg_corr_indices]))
+
+ggplot(df, aes(x = altcoin, y = correlation)) +
+  geom_bar(stat = "identity", fill = "red") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Altcoin", y = "Correlation with Bitcoin", 
+       title = "Top 5 Altcoins with Negative Correlation with Bitcoin")
+
+```
+This code will produce a bar plot of the top 5 altcoins that are negatively correlated with Bitcoin, sorted by their correlation values. The altcoins with the smallest correlation values (i.e., the most negative correlations) will be displayed at the top of the plot.
+
+#Analysis in market cap
+##Extract the market cap
+```{r markcap, collapse=TRUE, message=F, warning=F}
+library(reshape2)
+
+markcap <- data[c(1, 2, 8)]
+
+markcap$Market.Cap[markcap$Market.Cap == "-"] <- NA
+
+markcap.raw <- reshape(markcap, timevar = "Currency", idvar = "Date", direction = "wide")
+markcap.raw[,"Market.Cap.Currency"] <- NULL
+
+markcap <- data.frame(sapply(markcap.raw, function(z){as.numeric(gsub(",", "", z))}))
+
+markcap <- markcap[-nrow(markcap),]
+
+markcap <- markcap[,colSums(!is.na(markcap)) >= 200]
+
+colnames(markcap) <- sub("Market.Cap.", "", colnames(markcap))
+
+```
+
+
+##Average market cap
+```{r mean_markcap}
+mean.cap <- data.frame(mean.cap=colMeans(markcap, na.rm = T))
+mean.cap.10.name <- rownames(mean.cap[order(mean.cap$mean.cap, decreasing = T),,drop=F])[1:10]
+mean.cap.10.value <- mean.cap[order(mean.cap$mean.cap, decreasing = T),,drop=F][1:10,]
+mean.cap.10 <- data.frame(name=mean.cap.10.name, mean.market.cap=mean.cap.10.value)
+mean.cap.10
+
+library(ggplot2)
+
+ggplot(mean.cap.10, aes(x = reorder(name, mean.market.cap), y = mean.market.cap)) + 
+  geom_col(fill = "blue") + 
+  coord_flip() + 
+  labs(title = "Average Market Capital in Top 10 Cryptocurrencies", x = "Cryptocurrency", y = "Mean Market Capital")
+
+```
+
+```{r mean_markcap, fig.width=10, fig.height=4}
+
+library(xts)
+rownames(prices) <- prices$Date
+prices.xts <- as.xts(prices)
+prices.xts
+```
+
+```{r mean_markcap}
+
+price10 <- as.xts(prices[ ,mean.cap.10.name])
+plot.xts(price10, main="Price", ylim = c(0,1500))
+addLegend("topleft", colnames(price10), col=1:ncol(price10), lty=1:ncol(price10), cex=0.8)
+
+```
+
+```{r mean_markcap, fig.width=10, fig.height=4}
+
+library(PerformanceAnalytics)
+ret10.xts <- CalculateReturns(price10, method="log")
+ret10_clean <- ret10[complete.cases(ret10[, c("bitcoin", "ethereum", 
+                                              "xrp", "bitcoin.cash", 
+                                              "litecoin", "eos", "cardano", 
+                                              "stellar", "tether", 
+                                              "binance.coin")]), ]
+
+ret10_clean <- data.frame(ret10.xts)
+```
+
+##Mean
+```{r mean, collapse=TRUE}
+options(digits = 3)
+data.frame(mean.percent = sort(apply(ret10_clean[,1:ncol(ret10_clean)], 2, 
+                             function(x) mean(x, na.rm=TRUE)), decreasing = T))*100
+```
+
+##Variance
+```{r variance,  collapse=TRUE}
+options(digits = 3)
+data.frame(variance.percent = sort(apply(ret10_clean[,1:ncol(ret10_clean)], 
+                                         2, function(x) sd(x, na.rm=TRUE)), decreasing = T))*100
+```
+
+##Standard deviation
+```{r}
+options(digits = 3)
+data.frame(variance.percent = sqrt(sort(apply(ret10_clean[,1:ncol(ret10_clean)], 
+                                         2, function(x) sd(x, na.rm=TRUE)), decreasing = T)))*100
+```
+
+##CVar
+```{r message=FALSE, warning=FALSE}
+library(PerformanceAnalytics)
+CVaR(ret10_clean)
+```
+
+##Log-return chart
+```{r echo=FALSE}
+plot.xts(ret10.xts, main="log-return", ylim = c(-3,7))
+
+
+par(mfrow=c(2,1)); 
+for(i in 1:ncol(ret10)){
+  print(plot(ret10.xts[,i], main=colnames(ret10.xts)[i]))
+}
+```
+
+##Correlation chart
+```{r corchart, fig.width=10, fig.height=10, message=FALSE, warning=FALSE}
+library(PerformanceAnalytics)
+chart.Correlation(ret10_clean, pch = 20, alpha = 0.1)
+```
+
+In the context of chart.correlation() function, pch and alpha are arguments that 
+allow the user to customize the appearance of the plotted points in the scatterplot 
+matrix. For example, increasing the alpha value will make the points less transparent
+and more opaque, while decreasing it will make them more transparent. Similarly, 
+changing the value of pch will change the shape of the plotted points, 
+allowing for customization of the appearance of the scatterplot matrix.
+
+#Distribution analysis
+##Kernel Density
+```{r}
+par(mfrow=c(2,1)); 
+for(i in 1:ncol(ret10_clean)){
+  plot(density(ret10_clean[,i], na.rm = T), main=colnames(ret10_clean)[i])
+}
+```
+
+```{r}
+
+densities <- lapply(ret10_clean, density, na.rm = TRUE)
+
+max_densities <- sapply(densities, function(density) {
+  density$y[which.max(density$y)]
+})
+
+highest_density_var <- names(which.max(max_densities))
+
+cat("Variable with the highest kernel density:", highest_density_var, "\n")
+```
+
+```{r}
+densities <- apply(ret10_clean, 2, density, na.rm = TRUE)
+
+max_densities <- sapply(densities, function(x) max(x$y))
+
+sorted_cryptos <- names(max_densities)[order(max_densities)]
+
+print(sorted_cryptos)
+
+```
+
+```{r}
+densities <- apply(ret10_clean, 2, density, na.rm = TRUE)
+
+lowest <- densities[[7]]$y
+
+cat("Cardona:")
+print(head(lowest, 10))
+
+```
+
+```{r}
+densities <- apply(ret10_clean, 2, density, na.rm = TRUE)
+
+highest <- densities[[9]]$y
+
+cat("Tether:")
+print(head(highest, 10))
+
+```
